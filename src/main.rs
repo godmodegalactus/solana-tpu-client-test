@@ -1,4 +1,4 @@
-use rand::{distributions::Alphanumeric, prelude::Distribution};
+use rand::{distributions::Alphanumeric, prelude::Distribution, SeedableRng};
 use solana_client::{
     connection_cache, nonblocking::tpu_client::TpuClient, tpu_client::TpuClientConfig,
 };
@@ -29,10 +29,11 @@ pub async fn main() {
     let rpc_url = "https://api.testnet.solana.com";
     let ws_url = "wss://api.testnet.solana.com";
     let payer_location = "~/.config/solana/id.json";
+    let enable_confirmation = false;
 
     let payer_file = tokio::fs::read_to_string(payer_location)
         .await
-        .expect("Cannot find the identity file provided");
+        .expect("Cannot find the payer keypair file");
     let payer_bytes: Vec<u8> = serde_json::from_str(&payer_file).unwrap();
     let payer = Keypair::from_bytes(payer_bytes.as_slice()).unwrap();
 
@@ -52,10 +53,9 @@ pub async fn main() {
     .await
     .unwrap();
 
-    let mut rng = rand::thread_rng();
     let txs_sent_deque = Arc::new(Mutex::new(Vec::<Vec<Signature>>::new()));
     // creating confirming task
-    {
+    if enable_confirmation {
         let rpc_client = rpc_client.clone();
         let txs_sent_deque = txs_sent_deque.clone();
         tokio::spawn(async move {
@@ -85,7 +85,10 @@ pub async fn main() {
                             }
                         }
                     }
-                    println!("For batch {} : {} of 10 transactions were confirmed", counter, confirmed);
+                    println!(
+                        "For batch {} : {} of 10 transactions were confirmed",
+                        counter, confirmed
+                    );
                     counter += 1;
                 }
             }
@@ -102,7 +105,8 @@ pub async fn main() {
         };
 
         let mut txs = vec![];
-        for _ in 0..10 {
+        for seed in 0..10 {
+            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
             let msg: Vec<u8> = Alphanumeric.sample_iter(&mut rng).take(10).collect();
 
             let tx = create_memo_tx(&msg, &payer, blockhash);
@@ -110,7 +114,7 @@ pub async fn main() {
                 txs.push(tx.signatures[0]);
             }
         }
-        {
+        if enable_confirmation {
             txs_sent_deque.lock().await.push(txs);
         }
     }
