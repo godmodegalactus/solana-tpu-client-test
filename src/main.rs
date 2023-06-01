@@ -95,6 +95,19 @@ pub async fn main() {
         });
     }
 
+    // enable proc info logging
+    {
+        std::thread::spawn(move || {
+            loop {
+                // log every minute
+                std::thread::sleep(std::time::Duration::from_secs(60));
+                if let Ok(stat) = procinfo::pid::statm_self() { 
+                    println!("Stats \n {:#?}", stat);
+                }
+            }
+        });
+    }
+
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let blockhash = if let Ok(bh) = rpc_client.get_latest_blockhash().await {
@@ -105,7 +118,7 @@ pub async fn main() {
         };
 
         let mut txs = vec![];
-        for seed in 0..10 {
+        for seed in 0..100 {
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
             let msg: Vec<u8> = Alphanumeric.sample_iter(&mut rng).take(10).collect();
 
