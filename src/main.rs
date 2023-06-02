@@ -1,3 +1,4 @@
+use clap::{arg, command, Parser};
 use rand::{distributions::Alphanumeric, prelude::Distribution, SeedableRng};
 use solana_client::{
     connection_cache, nonblocking::tpu_client::TpuClient, tpu_client::TpuClientConfig,
@@ -24,12 +25,34 @@ fn create_memo_tx(msg: &[u8], payer: &Keypair, blockhash: Hash) -> Transaction {
     Transaction::new(&[payer], message, blockhash)
 }
 
+#[derive(Parser, Debug, Clone)]
+#[command(author, version, about, long_about = None)]
+pub struct Args {
+    #[arg(short = 'r', long, default_value_t = String::from("https://api.testnet.solana.com"))]
+    pub rpc_url: String,
+
+    #[arg(short = 'w', long, default_value_t = String::from("wss://api.testnet.solana.com"))]
+    pub ws_url: String,
+
+    #[arg(short = 'p', long, default_value_t = String::from("/home/galactus/.config/solana/id.json"))]
+    pub payer: String,
+
+    #[arg(short = 'n', default_value_t = 100)]
+    pub n: usize,
+
+    #[arg(short = 'e', default_value_t = false)]
+    pub enable_confirmation: bool,
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 16)]
 pub async fn main() {
-    let rpc_url = "https://api.testnet.solana.com";
-    let ws_url = "wss://api.testnet.solana.com";
-    let payer_location = "~/.config/solana/id.json";
-    let enable_confirmation = false;
+    let args = Args::parse();
+
+    let rpc_url = args.rpc_url;
+    let ws_url = args.ws_url;
+    let payer_location = args.payer;
+    let enable_confirmation = args.enable_confirmation;
+    let n = args.n;
 
     let payer_file = tokio::fs::read_to_string(payer_location)
         .await
@@ -44,7 +67,7 @@ pub async fn main() {
     let connection_cache = Arc::new(connection_cache::ConnectionCache::new(4));
     let tpu_client = TpuClient::new_with_connection_cache(
         rpc_client.clone(),
-        ws_url,
+        ws_url.as_str(),
         TpuClientConfig {
             ..Default::default()
         },
@@ -86,8 +109,8 @@ pub async fn main() {
                         }
                     }
                     println!(
-                        "For batch {} : {} of 10 transactions were confirmed",
-                        counter, confirmed
+                        "For batch {} : {} of {} transactions were confirmed",
+                        counter, confirmed, n
                     );
                     counter += 1;
                 }
@@ -98,11 +121,16 @@ pub async fn main() {
     // enable proc info logging
     {
         std::thread::spawn(move || {
+            let start_instance = std::time::Instant::now();
             loop {
                 // log every minute
                 std::thread::sleep(std::time::Duration::from_secs(60));
-                if let Ok(stat) = procinfo::pid::statm_self() { 
-                    println!("Stats \n {:#?}", stat);
+                if let Ok(stat) = procinfo::pid::statm_self() {
+                    println!(
+                        "Stats after {} s \n {:#?}",
+                        start_instance.elapsed().as_secs(),
+                        stat
+                    );
                 }
             }
         });
@@ -118,8 +146,8 @@ pub async fn main() {
         };
 
         let mut txs = vec![];
-        for seed in 0..100 {
-            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
+        for seed in 0..n {
+            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed as u64);
             let msg: Vec<u8> = Alphanumeric.sample_iter(&mut rng).take(10).collect();
 
             let tx = create_memo_tx(&msg, &payer, blockhash);
